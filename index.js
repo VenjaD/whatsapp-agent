@@ -116,6 +116,7 @@ client.on('message', async msg => {
 
     postedLinks.add(article.link);
     const caption = formatArticle(article);
+    await randomDelay();
     console.log(`Triggered by message — sending: "${article.title}"`);
 
     if (article.imageUrl) {
@@ -132,6 +133,11 @@ client.on('message', async msg => {
         await chat.sendMessage(caption);
     }
 });
+
+function randomDelay() {
+    const ms = (5 + Math.random() * 5) * 1000;
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function formatArticle(article) {
     const summary = article.summary ? `\n_${article.summary}_` : '';
