@@ -42,15 +42,15 @@ if (!GROUP_NAME) {
 
 // Article queue — pre-fetched in background, consumed one per trigger
 let articleQueue = [];
-let articleIndex = 0;
+const postedLinks = new Set();
 
 async function refreshFeed() {
     try {
         const articles = await fetchHeadlines(FEED_URL, HEADLINE_COUNT);
         if (articles.length) {
             articleQueue = articles;
-            articleIndex = 0;
-            console.log(`Feed refreshed — ${articles.length} articles ready.`);
+            const unposted = articles.filter(a => !postedLinks.has(a.link)).length;
+            console.log(`Feed refreshed — ${articles.length} articles ready (${unposted} unposted).`);
         }
     } catch (err) {
         console.error('Failed to refresh feed:', err.message);
@@ -59,9 +59,14 @@ async function refreshFeed() {
 
 function nextArticle() {
     if (!articleQueue.length) return null;
-    const article = articleQueue[articleIndex % articleQueue.length];
-    articleIndex++;
-    return article;
+    const unposted = articleQueue.filter(a => !postedLinks.has(a.link));
+    if (unposted.length === 0) {
+        // all posted — reset and start over
+        postedLinks.clear();
+        console.log('All articles posted — resetting queue.');
+        return articleQueue[0];
+    }
+    return unposted[0];
 }
 
 const client = new Client({
@@ -109,6 +114,7 @@ client.on('message', async msg => {
         return;
     }
 
+    postedLinks.add(article.link);
     const caption = formatArticle(article);
     console.log(`Triggered by message — sending: "${article.title}"`);
 
