@@ -32,8 +32,8 @@ app.listen(3000, () => console.log('QR web server running at http://localhost:30
 
 const GROUP_NAME = process.env.GROUP_NAME;
 const FEED_URL = process.env.FEED_URL;
-const HEADLINE_COUNT = parseInt(process.env.HEADLINE_COUNT || '10', 10);
-const REFRESH_INTERVAL_MS = 10 * 60 * 1000; // refresh feed every 10 minutes
+const HEADLINE_COUNT = parseInt(process.env.HEADLINE_COUNT || '30', 10);
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // refresh feed every 15 minutes
 
 if (!GROUP_NAME) {
     console.error('Missing GROUP_NAME in .env');
