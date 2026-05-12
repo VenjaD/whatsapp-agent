@@ -1,9 +1,12 @@
 const Parser = require('rss-parser');
 
-const parser = new Parser();
+const parser = new Parser({
+    customFields: {
+        item: [['media:content', 'mediaContent', { keepArray: false }]],
+    },
+});
 
-// BBC News RSS feeds — swap FEED_URL in .env to target a different topic
-const DEFAULT_FEED = 'http://feeds.bbci.co.uk/news/rss.xml';
+const DEFAULT_FEED = 'https://www.advocate.com/feed';
 
 async function fetchHeadlines(feedUrl = DEFAULT_FEED, limit = 5) {
     const feed = await parser.parseURL(feedUrl);
@@ -11,6 +14,7 @@ async function fetchHeadlines(feedUrl = DEFAULT_FEED, limit = 5) {
         title: item.title.trim(),
         link: item.link,
         summary: item.contentSnippet ? item.contentSnippet.trim() : '',
+        imageUrl: item.mediaContent?.$?.url || null,
     }));
 }
 

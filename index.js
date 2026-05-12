@@ -1,8 +1,8 @@
 require('dotenv').config();
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const axios = require('axios');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
-const cron = require('node-cron');
 const express = require('express');
 const { fetchHeadlines } = require('./scraper');
 
@@ -31,13 +31,37 @@ app.get('/', async (req, res) => {
 app.listen(3000, () => console.log('QR web server running at http://localhost:3000'));
 
 const GROUP_NAME = process.env.GROUP_NAME;
-const CRON_SCHEDULE = process.env.CRON_SCHEDULE || '0 9 * * *';
 const FEED_URL = process.env.FEED_URL;
-const HEADLINE_COUNT = parseInt(process.env.HEADLINE_COUNT || '5', 10);
+const HEADLINE_COUNT = parseInt(process.env.HEADLINE_COUNT || '10', 10);
+const REFRESH_INTERVAL_MS = 10 * 60 * 1000; // refresh feed every 10 minutes
 
 if (!GROUP_NAME) {
     console.error('Missing GROUP_NAME in .env');
     process.exit(1);
+}
+
+// Article queue — pre-fetched in background, consumed one per trigger
+let articleQueue = [];
+let articleIndex = 0;
+
+async function refreshFeed() {
+    try {
+        const articles = await fetchHeadlines(FEED_URL, HEADLINE_COUNT);
+        if (articles.length) {
+            articleQueue = articles;
+            articleIndex = 0;
+            console.log(`Feed refreshed — ${articles.length} articles ready.`);
+        }
+    } catch (err) {
+        console.error('Failed to refresh feed:', err.message);
+    }
+}
+
+function nextArticle() {
+    if (!articleQueue.length) return null;
+    const article = articleQueue[articleIndex % articleQueue.length];
+    articleIndex++;
+    return article;
 }
 
 const client = new Client({
@@ -61,15 +85,9 @@ client.on('authenticated', () => {
 });
 
 client.on('ready', async () => {
-    console.log(`Ready. Cron: "${CRON_SCHEDULE}" → group: "${GROUP_NAME}"`);
-
-    cron.schedule(CRON_SCHEDULE, async () => {
-        try {
-            await postNews();
-        } catch (err) {
-            console.error('Failed to post news:', err.message);
-        }
-    });
+    console.log(`Ready. Listening for messages in "${GROUP_NAME}"`);
+    await refreshFeed();
+    setInterval(refreshFeed, REFRESH_INTERVAL_MS);
 });
 
 client.on('auth_failure', msg => {
@@ -77,36 +95,41 @@ client.on('auth_failure', msg => {
     process.exit(1);
 });
 
-async function postNews() {
-    const articles = await fetchHeadlines(FEED_URL, HEADLINE_COUNT);
-    if (!articles.length) {
-        console.warn('No articles fetched — skipping.');
+client.on('message', async msg => {
+    const chat = await msg.getChat();
+    if (!chat.isGroup || chat.name !== GROUP_NAME) return;
+    if (msg.fromMe) return;
+
+    const sender = msg.author || msg.from;
+    if (sender !== '103204423503993@lid') return;
+
+    const article = nextArticle();
+    if (!article) {
+        console.warn('No articles in queue yet.');
         return;
     }
 
-    const message = formatMessage(articles);
-    const chats = await client.getChats();
-    const group = chats.find(c => c.isGroup && c.name === GROUP_NAME);
+    const caption = formatArticle(article);
+    console.log(`Triggered by message — sending: "${article.title}"`);
 
-    if (!group) {
-        console.error(`Group "${GROUP_NAME}" not found. Available groups:`);
-        chats.filter(c => c.isGroup).forEach(g => console.error(' -', g.name));
-        return;
+    if (article.imageUrl) {
+        try {
+            const response = await axios.get(article.imageUrl, { responseType: 'arraybuffer' });
+            const mimeType = response.headers['content-type'] || 'image/jpeg';
+            const data = Buffer.from(response.data).toString('base64');
+            const media = new MessageMedia(mimeType, data);
+            await chat.sendMessage(media, { caption });
+        } catch {
+            await chat.sendMessage(caption);
+        }
+    } else {
+        await chat.sendMessage(caption);
     }
+});
 
-    await group.sendMessage(message);
-    console.log(`Sent ${articles.length} headlines to "${group.name}"`);
-}
-
-function formatMessage(articles) {
-    const date = new Date().toLocaleDateString('en-GB', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-    });
-    const lines = articles.map((a, i) => {
-        const summary = a.summary ? `\n_${a.summary}_` : '';
-        return `*${i + 1}. ${a.title}*${summary}\n${a.link}`;
-    });
-    return `*BBC News — ${date}*\n\n${lines.join('\n\n')}`;
+function formatArticle(article) {
+    const summary = article.summary ? `\n_${article.summary}_` : '';
+    return `*${article.title}*${summary}\n${article.link}`;
 }
 
 client.initialize();
