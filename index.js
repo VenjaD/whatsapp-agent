@@ -106,7 +106,7 @@ client.on('message', async msg => {
     if (msg.fromMe) return;
 
     const sender = msg.author || msg.from;
-    if (sender !== '103204423503993@lid') return;
+    if (sender !== '46531742830805@lid') return; // Andreas
 
     const article = nextArticle();
     if (!article) {
